@@ -1,0 +1,9 @@
+== Pra
+
+=== Description
+Plugin servant à faire un PRA (plan de reprise d'activité) entre 2 jeedoms
+
+
+'''
+=== FAQ
+include::faq.asciidoc[]
