@@ -38,15 +38,68 @@ class pra extends eqLogic {
 		$pra->save();
 	}
 
+	public static function toggle() {
+		$node1 = self::byLogicalId('node1', 'pra');
+		$node2 = self::byLogicalId('node2', 'pra');
+		if (config::byKey('node::1::state', 'pra', '', true) == 'primary') {
+			$node1->toSecondary();
+			$node2->toPrimary();
+		} else {
+			$node2->toSecondary();
+			$node1->toPrimary();
+		}
+		$node2->refreshData();
+		$node1->refreshData();
+	}
+
+	public static function cron5() {
+		$node1 = self::byLogicalId('node1', 'pra');
+		$node2 = self::byLogicalId('node2', 'pra');
+		$node2->refreshData();
+		$node1->refreshData();
+		if ($node1->itsme() && config::byKey('node::1::state', 'pra', '', true) == 'secondary' && !$node2->isOnline()) {
+			log::add('pra', 'error', __('Bascule des serveur primaire/secondaire', __FILE__));
+			self::toggle();
+		}
+		if ($node2->itsme() && config::byKey('node::2::state', 'pra', '', true) == 'secondary' && !$node2->isOnline()) {
+			log::add('pra', 'error', __('Bascule des serveur primaire/secondaire', __FILE__));
+			self::toggle();
+		}
+	}
+
 	/*     * *********************Méthodes d'instance************************* */
 
-	public function getJsonRpc() {
+	public function getOtherNode() {
+		if ($this->getConfiguration('node') == 1) {
+			return 2;
+		}
+		return 1;
+	}
+
+	public function getJsonRpc($_params = array()) {
 		$params = array(
 			'apikey' => config::byKey('node::' . $this->getConfiguration('node') . '::apikey'),
 		);
+		$params = array_merge($params, $_params);
 		$jsonrpc = new jsonrpcClient(config::byKey('node::' . $this->getConfiguration('node') . '::ip') . '/core/api/jeeApi.php', '', $params);
 		$jsonrpc->setNoSslCheck(true);
 		return $jsonrpc;
+	}
+
+	public function toSecondary() {
+		config::save('node::' . $this->getConfiguration('node') . '::state', 'secondary', 'pra');
+		if (!$this->itsme()) {
+			$jsonrpc = $this->getJsonRpc(array('plugin' => 'pra'));
+			return $jsonrpc->sendRequest('toSecondary', array('node' => 'node::' . $this->getConfiguration('node') . '::ip'));
+		}
+	}
+
+	public function toPrimary() {
+		config::save('node::' . $this->getConfiguration('node') . '::state', 'primary', 'pra');
+		if (!$this->itsme()) {
+			$jsonrpc = $this->getJsonRpc(array('plugin' => 'pra'));
+			return $jsonrpc->sendRequest('toPrimary', array('node' => 'node::' . $this->getConfiguration('node') . '::ip'));
+		}
 	}
 
 	public function postSave() {
@@ -86,7 +139,7 @@ class pra extends eqLogic {
 		$cmd->setLogicalId('state');
 		$cmd->save();
 
-		$cmd = $this->getCmd('action', 'switch');
+		$cmd = $this->getCmd('action', 'toggle');
 		if (!is_object($cmd)) {
 			$cmd = new praCmd();
 			$cmd->setName(__('Bascule', __FILE__));
@@ -95,16 +148,16 @@ class pra extends eqLogic {
 		$cmd->setSubtype('other');
 		$cmd->setEqLogic_id($this->getId());
 		$cmd->setIsVisible(1);
-		$cmd->setLogicalId('switch');
+		$cmd->setLogicalId('toggle');
 		$cmd->save();
 
-		$this->resfresh();
+		$this->refreshData();
 	}
 
-	public function resfresh() {
-		$this->checkAndUpdateCmd('ip', config::byKey('node::' . $this->getConfiguration('node') . '::ip', 'pra'));
+	public function refreshData() {
+		$this->checkAndUpdateCmd('ip', config::byKey('node::' . $this->getConfiguration('node') . '::ip', 'pra', '', true));
 		$this->checkAndUpdateCmd('state', $this->isOnline());
-		$this->checkAndUpdateCmd('mode', config::byKey('node::' . $this->getConfiguration('node') . '::state', 'pra'));
+		$this->checkAndUpdateCmd('mode', config::byKey('node::' . $this->getConfiguration('node') . '::state', 'pra', '', true));
 	}
 
 	public function isOnline() {
@@ -130,7 +183,9 @@ class praCmd extends cmd {
 	/*     * *********************Methode d'instance************************* */
 
 	public function execute($_options = array()) {
-
+		if ($this->getLogicalID() == 'toggle') {
+			pra::toggle();
+		}
 	}
 
 	/*     * **********************Getteur Setteur*************************** */
